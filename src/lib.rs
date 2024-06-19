@@ -67,11 +67,6 @@
 //! For authentication you need an [Authenticator](yup_oauth2::authenticator::Authenticator), which is provided by the [yup_oauth2](yup_oauth2) crate.
 pub use yup_oauth2;
 
-pub mod googleapis {
-    //! Codegenerated from [`google.cloud.bigquery.storage.v1`](https://github.com/googleapis/googleapis/tree/master/google/cloud/bigquery/storage/v1).
-    tonic::include_proto!("google.cloud.bigquery.storage.v1");
-}
-
 pub mod client;
 pub use client::*;
 
@@ -130,4 +125,15 @@ impl Error {
     pub(crate) fn invalid<S: AsRef<str>>(s: S) -> Self {
         Self::InvalidResponse(s.as_ref().to_string())
     }
+}
+
+pub mod google {
+    #[path = "google.api.rs"]
+    pub mod api;
+
+    #[path = "google.cloud.bigquery.storage.v1.rs"]
+    pub mod storage;
+
+    #[path = "google.rpc.rs"]
+    pub mod rpc;
 }

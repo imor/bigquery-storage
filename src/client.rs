@@ -31,8 +31,8 @@ use prost_types::Timestamp;
 use tonic::transport::{Channel, ClientTlsConfig};
 use tonic::{Request, Streaming};
 
-use crate::googleapis::big_query_read_client::BigQueryReadClient;
-use crate::googleapis::{
+use crate::google::storage::{
+    big_query_read_client::BigQueryReadClient,
     read_session::{TableModifiers, TableReadOptions},
     CreateReadSessionRequest, DataFormat, ReadRowsRequest, ReadRowsResponse,
     ReadSession as BigQueryReadSession, ReadStream,
@@ -129,6 +129,8 @@ read_session_builder! {
     row_restriction: String,
     #[doc = "Max initial number of streams. If unset or zero, the server will provide a value of streams so as to produce reasonable throughput. Must be non-negative. The number of streams may be lower than the requested number, depending on the amount parallelism that is reasonable for the table. Error will be returned if the max count is greater than the current system max limit of 1,000."]
     max_stream_count: i32,
+    #[doc = "The minimum preferred stream count."]
+    preferred_min_stream_count: i32,
     #[doc = "The request project that owns the session. If not set, defaults to the project owning the table to be read."]
     parent_project_id: String,
 }
@@ -168,11 +170,13 @@ where
         let parent_project_id = self.opts.parent_project_id.unwrap_or(self.table.project_id);
         let parent = format!("projects/{}", parent_project_id);
         let max_stream_count = self.opts.max_stream_count.unwrap_or_default();
+        let preferred_min_stream_count = self.opts.preferred_min_stream_count.unwrap_or_default();
 
         let req = CreateReadSessionRequest {
             parent,
             read_session: Some(inner),
             max_stream_count,
+            preferred_min_stream_count,
         };
 
         let inner = self.client.create_read_session(req).await?;

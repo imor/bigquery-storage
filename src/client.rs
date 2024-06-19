@@ -19,11 +19,12 @@
 //!     Ok(())
 //! }
 //! ```
-use hyper::client::connect::Connect;
+use std::convert::TryInto;
+
+use hyper_util::client::legacy::connect::Connect;
 use yup_oauth2::authenticator::Authenticator;
 
 use prost_types::Timestamp;
-use tonic::metadata::MetadataValue;
 use tonic::transport::{Channel, ClientTlsConfig};
 use tonic::{Request, Streaming};
 
@@ -238,14 +239,20 @@ where
     }
     async fn new_request<D>(&self, t: D, params: &str) -> Result<Request<D>, Error> {
         let token = self.auth.token(&[API_SCOPE]).await?;
-        let bearer_token = format!("Bearer {}", token.as_str());
-        let bearer_value = MetadataValue::from_str(&bearer_token)?;
+        let bearer_token = format!(
+            "Bearer {}",
+            token
+                .token()
+                .ok_or(Error::Auth(yup_oauth2::Error::MissingAccessToken))?
+        );
+        let bearer_value = bearer_token.as_str().try_into()?;
         let mut req = Request::new(t);
         let meta = req.metadata_mut();
         meta.insert("authorization", bearer_value);
-        meta.insert("x-goog-request-params", MetadataValue::from_str(params)?);
+        meta.insert("x-goog-request-params", params.try_into()?);
         Ok(req)
     }
+
     async fn create_read_session(
         &mut self,
         req: CreateReadSessionRequest,
@@ -261,6 +268,7 @@ where
             .into_inner();
         Ok(read_session)
     }
+
     async fn read_stream_rows(
         &mut self,
         stream: &str,

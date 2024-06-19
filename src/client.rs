@@ -31,18 +31,14 @@ use prost_types::Timestamp;
 use tonic::transport::{Channel, ClientTlsConfig};
 use tonic::{Request, Streaming};
 
-use crate::google::storage::{
+use crate::google::cloud::bigquery::storage::v1::{
     big_query_read_client::BigQueryReadClient,
     read_session::{TableModifiers, TableReadOptions},
     CreateReadSessionRequest, DataFormat, ReadRowsRequest, ReadRowsResponse,
     ReadSession as BigQueryReadSession, ReadStream,
 };
-use crate::Error;
-use crate::RowsStreamReader;
-
-static API_ENDPOINT: &str = "https://bigquerystorage.googleapis.com";
-static API_DOMAIN: &str = "bigquerystorage.googleapis.com";
-static API_SCOPE: &str = "https://www.googleapis.com/auth/bigquery";
+use crate::{Error, API_DOMAIN, API_SCOPE};
+use crate::{RowsStreamReader, API_ENDPOINT};
 
 /// A fully qualified BigQuery table. This requires a `project_id`, a `dataset_id`
 /// and a `table_id`. Only alphanumerical and underscores are allowed for `dataset_id`

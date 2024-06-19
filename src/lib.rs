@@ -73,6 +73,13 @@ pub use client::*;
 pub mod read;
 pub use read::*;
 
+pub mod write;
+pub use write::*;
+
+static API_ENDPOINT: &str = "https://bigquerystorage.googleapis.com";
+static API_DOMAIN: &str = "bigquerystorage.googleapis.com";
+static API_SCOPE: &str = "https://www.googleapis.com/auth/bigquery";
+
 macro_rules! errors {
     { $(
         $(#[$m:meta])*
@@ -131,8 +138,17 @@ pub mod google {
     #[path = "google.api.rs"]
     pub mod api;
 
-    #[path = "google.cloud.bigquery.storage.v1.rs"]
-    pub mod storage;
+    #[path = ""]
+    pub mod cloud {
+        #[path = ""]
+        pub mod bigquery {
+            #[path = ""]
+            pub mod storage {
+                #[path = "google.cloud.bigquery.storage.v1.rs"]
+                pub mod v1;
+            }
+        }
+    }
 
     #[path = "google.rpc.rs"]
     pub mod rpc;

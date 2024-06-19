@@ -14,6 +14,9 @@
 //!
 //! #[tokio::main(flavor = "current_thread")]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     rustls::crypto::aws_lc_rs::default_provider()
+//!         .install_default()
+//!         .expect("Failed to install rustls crypto provider");
 //!     // 1. Load the desired secret (here, a service account key)
 //!     let sa_key = yup_oauth2::read_service_account_key("clientsecret.json")
 //!         .await?;

@@ -1,4 +1,5 @@
 # bigquery-storage
+
 A small wrapper around the [Google BigQuery Storage API](https://cloud.google.com/bigquery/docs/reference/storage).
 
 The BigQuery Storage API allows reading BigQuery tables by serializing their contents into efficient, concurrent streams. The official API supports both binary serialized Arrow and AVRO formats, but this crate only supports outputting Arrow [RecordBatch](arrow::record_batch::RecordBatch) at the moment.
@@ -12,16 +13,21 @@ use bigquery_storage::{Table, Client};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Load the desired secret (here, a service account key)
+    // 1. Install crypto provider
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
+    // 2. Load the desired secret (here, a service account key)
     let sa_key = yup_oauth2::read_service_account_key("clientsecret.json")
         .await?;
 
-    // 2. Create an Authenticator
+    // 3. Create an Authenticator
     let auth = yup_oauth2::ServiceAccountAuthenticator::builder(sa_key)
         .build()
         .await?;
 
-    // 3. Create a Client
+    // 4. Create a Client
     let mut client = Client::new(auth).await?;
 
     // Reading the content of a table `bigquery-public-beta:london_bicycles.cycle_stations`
@@ -60,4 +66,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 ## License
+
 This project is licensed under the [Apache-2.0 license](LICENSE).

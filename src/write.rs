@@ -1,6 +1,8 @@
 use std::{collections::HashMap, convert::TryInto};
 
 use hyper_util::client::legacy::connect::Connect;
+use prost::Message;
+use prost_types::{field_descriptor_proto::Type, DescriptorProto, FieldDescriptorProto};
 use tokio_stream::StreamExt;
 use tonic::{
     transport::{Channel, ClientTlsConfig},
@@ -10,8 +12,9 @@ use yup_oauth2::authenticator::Authenticator;
 
 use crate::{
     google::cloud::bigquery::storage::v1::{
-        append_rows_request::MissingValueInterpretation,
-        big_query_write_client::BigQueryWriteClient, AppendRowsRequest,
+        append_rows_request::{self, MissingValueInterpretation, ProtoData},
+        big_query_write_client::BigQueryWriteClient,
+        AppendRowsRequest, ProtoSchema,
     },
     Error, API_DOMAIN, API_ENDPOINT, API_SCOPE,
 };
@@ -68,7 +71,7 @@ where
             trace_id,
             missing_value_interpretations: HashMap::new(),
             default_missing_value_interpretation: MissingValueInterpretation::Unspecified.into(),
-            rows: None,
+            rows: Some(Self::create_rows()),
         };
 
         let req = self
@@ -87,5 +90,111 @@ where
         }
 
         Ok(())
+    }
+
+    fn create_rows() -> append_rows_request::Rows {
+        let proto_descriptor = DescriptorProto {
+            name: Some("table_schema".to_string()),
+            field: vec![
+                FieldDescriptorProto {
+                    name: Some("actor_id".to_string()),
+                    number: Some(1),
+                    label: None,
+                    r#type: Some(Type::Int64.into()),
+                    type_name: None,
+                    extendee: None,
+                    default_value: None,
+                    oneof_index: None,
+                    json_name: None,
+                    options: None,
+                    proto3_optional: None,
+                },
+                FieldDescriptorProto {
+                    name: Some("first_name".to_string()),
+                    number: Some(2),
+                    label: None,
+                    r#type: Some(Type::String.into()),
+                    type_name: None,
+                    extendee: None,
+                    default_value: None,
+                    oneof_index: None,
+                    json_name: None,
+                    options: None,
+                    proto3_optional: None,
+                },
+                FieldDescriptorProto {
+                    name: Some("last_name".to_string()),
+                    number: Some(3),
+                    label: None,
+                    r#type: Some(Type::String.into()),
+                    type_name: None,
+                    extendee: None,
+                    default_value: None,
+                    oneof_index: None,
+                    json_name: None,
+                    options: None,
+                    proto3_optional: None,
+                },
+                FieldDescriptorProto {
+                    name: Some("last_update".to_string()),
+                    number: Some(4),
+                    label: None,
+                    r#type: Some(Type::String.into()),
+                    type_name: None,
+                    extendee: None,
+                    default_value: None,
+                    oneof_index: None,
+                    json_name: None,
+                    options: None,
+                    proto3_optional: None,
+                },
+            ],
+            extension: vec![],
+            nested_type: vec![],
+            enum_type: vec![],
+            extension_range: vec![],
+            oneof_decl: vec![],
+            options: None,
+            reserved_range: vec![],
+            reserved_name: vec![],
+        };
+        let proto_schema = ProtoSchema {
+            proto_descriptor: Some(proto_descriptor),
+        };
+
+        #[derive(Clone, PartialEq, Message)]
+        struct Actor {
+            #[prost(int32, tag = "1")]
+            actor_id: i32,
+
+            #[prost(string, tag = "2")]
+            first_name: String,
+
+            #[prost(string, tag = "3")]
+            last_name: String,
+
+            #[prost(string, tag = "4")]
+            last_update: String,
+        }
+
+        let actor = Actor {
+            actor_id: 400,
+            first_name: "Raminder".to_string(),
+            last_name: "Singh".to_string(),
+            last_update: "2006-02-15 09:34:33 UTC".to_string(),
+        };
+
+        let actor = actor.encode_to_vec();
+
+        let proto_rows = crate::google::cloud::bigquery::storage::v1::ProtoRows {
+            //TODO:add rows
+            serialized_rows: vec![actor],
+        };
+
+        let proto_data = ProtoData {
+            writer_schema: Some(proto_schema),
+            rows: Some(proto_rows),
+        };
+        append_rows_request::Rows::ProtoRows(proto_data)
     }
 }

@@ -1,12 +1,11 @@
-use std::{collections::HashMap, convert::TryInto};
+use std::{collections::HashMap, convert::TryInto, fmt::Display};
 
 use hyper_util::client::legacy::connect::Connect;
 use prost::Message;
 use prost_types::{field_descriptor_proto::Type, DescriptorProto, FieldDescriptorProto};
-use tokio_stream::StreamExt;
 use tonic::{
     transport::{Channel, ClientTlsConfig},
-    Request,
+    Request, Streaming,
 };
 use yup_oauth2::authenticator::Authenticator;
 
@@ -14,7 +13,7 @@ use crate::{
     google::cloud::bigquery::storage::v1::{
         append_rows_request::{self, MissingValueInterpretation, ProtoData},
         big_query_write_client::BigQueryWriteClient,
-        AppendRowsRequest, ProtoSchema,
+        AppendRowsRequest, AppendRowsResponse, ProtoSchema,
     },
     Error, API_DOMAIN, API_ENDPOINT, API_SCOPE,
 };
@@ -22,6 +21,105 @@ use crate::{
 pub struct WriteClient<C> {
     auth: Authenticator<C>,
     inner: BigQueryWriteClient<Channel>,
+}
+
+/// BigQuery column type
+#[derive(Clone, Copy)]
+pub enum ColumnType {
+    Bool,
+    Bytes,
+    Date,
+    Datetime,
+    Json,
+    Int64,
+    Float64,
+    String,
+    Time,
+    Timestamp,
+}
+
+impl From<ColumnType> for Type {
+    fn from(value: ColumnType) -> Self {
+        match value {
+            ColumnType::Bool => Type::Bool,
+            ColumnType::Bytes => Type::Bytes,
+            ColumnType::Date => Type::String,
+            ColumnType::Datetime => Type::String,
+            ColumnType::Json => Type::String,
+            ColumnType::Int64 => Type::Int64,
+            ColumnType::Float64 => Type::Float,
+            ColumnType::String => Type::String,
+            ColumnType::Time => Type::String,
+            ColumnType::Timestamp => Type::String,
+        }
+    }
+}
+
+/// A struct to describe the schema of a field in protobuf
+pub struct FieldDescriptor {
+    /// Field numbers starting from 1. Each subsequence field should be incremented by 1.
+    pub number: u32,
+
+    /// Field name
+    pub name: String,
+
+    /// Field type
+    pub typ: ColumnType,
+}
+
+/// A struct to describe the schema of a table in protobuf
+pub struct TableDescriptor {
+    /// Descriptors of all the fields
+    pub field_descriptors: Vec<FieldDescriptor>,
+}
+
+/// A struct representing a stream name
+pub struct StreamName {
+    /// Name of the project
+    project: String,
+
+    /// Name of the dataset
+    dataset: String,
+
+    /// Name of the table
+    table: String,
+
+    /// Name of the stream
+    stream: String,
+}
+
+impl StreamName {
+    pub fn new(project: String, dataset: String, table: String, stream: String) -> StreamName {
+        StreamName {
+            project,
+            dataset,
+            table,
+            stream,
+        }
+    }
+
+    pub fn new_default(project: String, dataset: String, table: String) -> StreamName {
+        StreamName {
+            project,
+            dataset,
+            table,
+            stream: "_default".to_string(),
+        }
+    }
+}
+
+impl Display for StreamName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let StreamName {
+            project,
+            dataset,
+            table,
+            stream,
+        } = self;
+        f.write_fmt(format_args!(
+            "projects/{project}/datasets/{dataset}/tables/{table}/streams/{stream}"
+        ))
+    }
 }
 
 impl<C> WriteClient<C>
@@ -51,19 +149,17 @@ where
         let mut req = Request::new(t);
         let meta = req.metadata_mut();
         meta.insert("authorization", bearer_value);
-        // meta.insert("x-goog-request-params", params.try_into()?);
         Ok(req)
     }
 
-    pub async fn append_rows(&mut self) -> Result<(), Error> {
-        let project = "pg-replicate-test-project";
-        let dataset = "test_data_set";
-        let table = "actor";
-
-        let write_stream =
-            format!("projects/{project}/datasets/{dataset}/tables/{table}/streams/_default");
-
-        let trace_id = "test_client".to_string();
+    pub async fn append_rows<M: Message>(
+        &mut self,
+        stream_name: &StreamName,
+        table_descriptor: &TableDescriptor,
+        rows: &[M],
+        trace_id: String,
+    ) -> Result<Streaming<AppendRowsResponse>, Error> {
+        let write_stream = stream_name.to_string();
 
         let append_rows_request = AppendRowsRequest {
             write_stream,
@@ -71,7 +167,7 @@ where
             trace_id,
             missing_value_interpretations: HashMap::new(),
             default_missing_value_interpretation: MissingValueInterpretation::Unspecified.into(),
-            rows: Some(Self::create_rows()),
+            rows: Some(Self::create_rows(table_descriptor, rows)),
         };
 
         let req = self
@@ -80,75 +176,38 @@ where
 
         let response = self.inner.append_rows(req).await?;
 
-        println!("streaming response: {response:#?}");
+        let streaming = response.into_inner();
 
-        let mut streaming = response.into_inner();
-
-        while let Some(resp) = streaming.next().await {
-            let resp = resp?;
-            println!("response: {resp:#?}");
-        }
-
-        Ok(())
+        Ok(streaming)
     }
 
-    fn create_rows() -> append_rows_request::Rows {
+    fn create_rows<M: Message>(
+        table_descriptor: &TableDescriptor,
+        rows: &[M],
+    ) -> append_rows_request::Rows {
+        let field_descriptors = table_descriptor
+            .field_descriptors
+            .iter()
+            .map(|fd| {
+                let typ: Type = fd.typ.into();
+                FieldDescriptorProto {
+                    name: Some(fd.name.clone()),
+                    number: Some(fd.number as i32),
+                    label: None,
+                    r#type: Some(typ.into()),
+                    type_name: None,
+                    extendee: None,
+                    default_value: None,
+                    oneof_index: None,
+                    json_name: None,
+                    options: None,
+                    proto3_optional: None,
+                }
+            })
+            .collect();
         let proto_descriptor = DescriptorProto {
             name: Some("table_schema".to_string()),
-            field: vec![
-                FieldDescriptorProto {
-                    name: Some("actor_id".to_string()),
-                    number: Some(1),
-                    label: None,
-                    r#type: Some(Type::Int64.into()),
-                    type_name: None,
-                    extendee: None,
-                    default_value: None,
-                    oneof_index: None,
-                    json_name: None,
-                    options: None,
-                    proto3_optional: None,
-                },
-                FieldDescriptorProto {
-                    name: Some("first_name".to_string()),
-                    number: Some(2),
-                    label: None,
-                    r#type: Some(Type::String.into()),
-                    type_name: None,
-                    extendee: None,
-                    default_value: None,
-                    oneof_index: None,
-                    json_name: None,
-                    options: None,
-                    proto3_optional: None,
-                },
-                FieldDescriptorProto {
-                    name: Some("last_name".to_string()),
-                    number: Some(3),
-                    label: None,
-                    r#type: Some(Type::String.into()),
-                    type_name: None,
-                    extendee: None,
-                    default_value: None,
-                    oneof_index: None,
-                    json_name: None,
-                    options: None,
-                    proto3_optional: None,
-                },
-                FieldDescriptorProto {
-                    name: Some("last_update".to_string()),
-                    number: Some(4),
-                    label: None,
-                    r#type: Some(Type::String.into()),
-                    type_name: None,
-                    extendee: None,
-                    default_value: None,
-                    oneof_index: None,
-                    json_name: None,
-                    options: None,
-                    proto3_optional: None,
-                },
-            ],
+            field: field_descriptors,
             extension: vec![],
             nested_type: vec![],
             enum_type: vec![],
@@ -162,33 +221,10 @@ where
             proto_descriptor: Some(proto_descriptor),
         };
 
-        #[derive(Clone, PartialEq, Message)]
-        struct Actor {
-            #[prost(int32, tag = "1")]
-            actor_id: i32,
-
-            #[prost(string, tag = "2")]
-            first_name: String,
-
-            #[prost(string, tag = "3")]
-            last_name: String,
-
-            #[prost(string, tag = "4")]
-            last_update: String,
-        }
-
-        let actor = Actor {
-            actor_id: 400,
-            first_name: "Raminder".to_string(),
-            last_name: "Singh".to_string(),
-            last_update: "2006-02-15 09:34:33 UTC".to_string(),
-        };
-
-        let actor = actor.encode_to_vec();
+        let rows = rows.iter().map(|m| m.encode_to_vec()).collect();
 
         let proto_rows = crate::google::cloud::bigquery::storage::v1::ProtoRows {
-            //TODO:add rows
-            serialized_rows: vec![actor],
+            serialized_rows: rows,
         };
 
         let proto_data = ProtoData {
